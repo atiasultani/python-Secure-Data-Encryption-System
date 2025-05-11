@@ -1,4 +1,4 @@
-# Paste this in a file named secure_data_app.py
+
 import streamlit as st
 import hashlib
 import json
