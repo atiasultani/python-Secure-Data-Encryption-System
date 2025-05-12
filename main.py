@@ -1,4 +1,3 @@
-
 import streamlit as st
 import hashlib
 import json
@@ -9,6 +8,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
+import streamlit.components.v1 as components
 
 # Constants
 DATA_FILE = "users_data.json"
@@ -26,7 +26,7 @@ def save_data(data):
     with open(DATA_FILE, "w") as file:
         json.dump(data, file, indent=4)
 
-# PBKDF2 passkey hashing
+# Hash passkey
 def hash_passkey(passkey):
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
@@ -37,7 +37,7 @@ def hash_passkey(passkey):
     )
     return base64.urlsafe_b64encode(kdf.derive(passkey.encode())).decode()
 
-# Derive Fernet encryption key
+# Derive encryption key
 def derive_fernet_key(passkey):
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
@@ -48,13 +48,12 @@ def derive_fernet_key(passkey):
     )
     return base64.urlsafe_b64encode(kdf.derive(passkey.encode()))
 
-# Encrypt data using Fernet
+# Encrypt and decrypt functions
 def encrypt_data(data, passkey):
     key = derive_fernet_key(passkey)
     cipher = Fernet(key)
     return cipher.encrypt(data.encode()).decode()
 
-# Decrypt data using Fernet
 def decrypt_data(cipher_text, passkey):
     try:
         key = derive_fernet_key(passkey)
@@ -63,7 +62,7 @@ def decrypt_data(cipher_text, passkey):
     except:
         return None
 
-# Initialize session state
+# Init session state
 if "users" not in st.session_state:
     st.session_state.users = load_data()
 
@@ -76,13 +75,18 @@ if "failed_attempts" not in st.session_state:
 if "lockout_time" not in st.session_state:
     st.session_state.lockout_time = 0
 
-# Check lockout status
+# Lockout check
 def is_locked_out():
     return time.time() < st.session_state.lockout_time
 
-# Sidebar navigation
+# Sidebar
 menu = ["Home", "Register", "Login", "Store Data", "Retrieve Data"]
 choice = st.sidebar.selectbox("Navigation", menu)
+
+if st.session_state.current_user:
+    if st.sidebar.button("🚪 Logout"):
+        st.session_state.current_user = None
+        st.success("🔒 You have been logged out.")
 
 # Home Page
 if choice == "Home":
@@ -95,7 +99,7 @@ if choice == "Home":
     - Store data persistently in a JSON file.
     """)
 
-# User Registration
+# Register
 elif choice == "Register":
     st.subheader("🧑‍💻 Register New User")
     username = st.text_input("Choose a Username")
@@ -114,7 +118,7 @@ elif choice == "Register":
         else:
             st.error("⚠️ Please fill in both fields.")
 
-# User Login
+# Login
 elif choice == "Login":
     st.subheader("🔑 User Login")
     username = st.text_input("Username")
@@ -135,22 +139,31 @@ elif choice == "Store Data":
         st.warning("⚠️ Please log in first.")
     else:
         st.subheader("📦 Store Encrypted Data")
-        data_input = st.text_area("Enter your sensitive data")
-        passkey = st.text_input("Encryption Passkey", type="password")
+        data_input = st.text_area("Enter your sensitive data", key="data_input")
+        passkey = st.text_input("🔑 Enter Passkey to encrypt and save", type="password")
 
-        if st.button("Encrypt & Store"):
+        if st.button("🔐 Encrypt & Save"):
             if data_input and passkey:
                 encrypted = encrypt_data(data_input, passkey)
                 hashed_pass = hash_passkey(passkey)
+
+                # Save encrypted data
                 st.session_state.users[st.session_state.current_user]["data"].append({
                     "encrypted_text": encrypted,
                     "passkey": hashed_pass
                 })
                 save_data(st.session_state.users)
+
                 st.success("✅ Data encrypted and stored.")
-                st.code(encrypted, language="text")
+
+                # Add copy button
+                components.html(f"""
+<textarea id=\"encryptedText\" style=\"width:100%; height:120px;\">{encrypted}</textarea>
+<button onclick=\"navigator.clipboard.writeText(document.getElementById('encryptedText').value)\">📋 Copy Encrypted Text</button>
+""", height=180)
+
             else:
-                st.error("⚠️ Please provide data and a passkey.")
+                st.error("⚠️ Please provide both the data and the passkey.")
 
 # Retrieve Data
 elif choice == "Retrieve Data":
@@ -171,7 +184,8 @@ elif choice == "Retrieve Data":
                 if entry["encrypted_text"] == encrypted_input and entry["passkey"] == hashed_pass:
                     result = decrypt_data(encrypted_input, passkey)
                     if result:
-                        st.success(f"✅ Decrypted Data: {result}")
+                        st.success("✅ Decrypted Data:")
+                        st.text_area("Decrypted Output", value=result, height=120)
                         st.session_state.failed_attempts = 0
                         break
             else:
